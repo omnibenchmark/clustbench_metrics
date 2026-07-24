@@ -146,12 +146,7 @@ def main():
     except:
         parser.print_help()
         sys.exit(0)
-
-    # logging
-    print(f"Full command: {' '.join(sys.argv)}")
-    for k in ("output_dir", "name", "clustering.predicted_ks_range", "data.true_labels", "metric"):
-        print(f"  {k}: {getattr(args, k)}")
-
+    
     truth = load_true_labels(getattr(args, 'data.true_labels'))
     ks, predicted = load_predicted_labels(getattr(args, 'clustering.predicted_ks_range'))
     
@@ -189,7 +184,6 @@ def main():
     for i in range(len(ks)):
         k = ks[i][2:] # to remove the 'k=' prepend
         ## the str is to coerce numpy float64 to something easier to write to disk
-        print("k: ", k, "  metric: ", metric)
         res.append(str(get_single_score(results = predicted[:,i,],
                                        labels = truth,
                                        metric = metric,
