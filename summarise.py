@@ -21,7 +21,7 @@ def rows(member):
     data, method = by_stage["data"], by_stage["clustering"]
     label = {
         "dataset_generator": data["parameters"]["dataset_generator"],
-        "dataset": data["parameters"]["dataset_name"],
+        "dataset": data["parameters"]["dataset"],
         "method": method["module"],
         "method_params": ";".join(f"{k}={v}" for k, v in sorted(method["parameters"].items())),
         "metric": by_stage["metrics"]["parameters"]["metric"],
