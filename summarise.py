@@ -30,8 +30,9 @@ def rows(member):
         ks, scores = (line.strip().split(",") for line in fh.read().splitlines()[:2])
     if len(ks) != len(K_POSITIONS):
         raise ValueError(f"{member['node_id']}: expected {len(K_POSITIONS)} ks, got {ks}")
+    # the fcps module quotes its header ("k=2"), and the scores file inherits it
     for position, k, score in zip(K_POSITIONS, ks, scores):
-        yield {**label, "k_position": position, "k": k.removeprefix("k="), "score": score}
+        yield {**label, "k_position": position, "k": k.strip('"').removeprefix("k="), "score": score}
 
 
 def main():
