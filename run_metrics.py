@@ -130,27 +130,23 @@ def get_single_score(
 def main():
     parser = argparse.ArgumentParser(description='clustbench fastcluster runner')
 
-    parser.add_argument('--clustering.predicted_ks_range', type=str,
+    parser.add_argument('--clustering_predicted_ks_range', type=str,
                         help='gz-compressed textfile containing the clustering result labels.', required = True)
-    parser.add_argument('--data.true_labels', type=str,
+    parser.add_argument('--data_true_labels', type=str,
                         help='gz-compressed textfile containing the true labels.', required = True)
-    parser.add_argument('--output_dir', type=str,
-                        help='output directory to store data files.')
-    parser.add_argument('--name', type=str, help='name of the dataset', default='clustbench')
+    parser.add_argument('--output', action='append', default=[],
+                        help='id=PATH, one per output the stage declares (api 0.8.0).')
     parser.add_argument('--metric', type=str,
                         help='metric',
                         required = True)
 
-    try:
-        args = parser.parse_args()
-    except:
-        parser.print_help()
-        sys.exit(0)
+    # ob still passes --output_dir and --name until api 0.10; they are ignored.
+    args, _ = parser.parse_known_args()
+    outputs = dict(o.split('=', 1) for o in args.output)
     
-    truth = load_true_labels(getattr(args, 'data.true_labels'))
-    ks, predicted = load_predicted_labels(getattr(args, 'clustering.predicted_ks_range'))
+    truth = load_true_labels(args.data_true_labels)
+    ks, predicted = load_predicted_labels(args.clustering_predicted_ks_range)
     
-    name = args.name
 
     
     if args.metric == 'normalized_clustering_accuracy':
@@ -190,9 +186,8 @@ def main():
                                        compute_max=True,
                                        warn_if_missing=True)))
         
-    # np.savetxt(os.path.join(args.output_dir, f"{name}.scores.gz"), [scores], delimiter=",")
     ## np.savetext-free alternative
-    with gzip.open(os.path.join(args.output_dir, f"{name}.scores.gz"), 'wb') as fh:
+    with gzip.open(outputs['metrics_scores'], 'wb') as fh:
         fh.write(','.join(ks).encode())
         fh.write('\n'.encode())
         fh.write(','.join(res).encode())
