@@ -41,7 +41,7 @@ def rows(member, truth, metrics):
     by_stage = {entry["stage"]: entry for entry in member["lineage"]}
     data, method = by_stage["data"], by_stage["clustering"]
     label = {
-        "dataset_generator": data["parameters"]["dataset_generator"],
+        "dataset_generator": data["parameters"]["generator"],
         "dataset": data["parameters"]["dataset"],
         "method": method["module"],
         "method_params": ";".join(f"{k}={v}" for k, v in sorted(method["parameters"].items())),
