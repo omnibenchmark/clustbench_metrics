@@ -1,198 +1,100 @@
 #!/usr/bin/env python
+"""Gather entrypoint (api 0.8.0): every metric over every clustering of one dataset.
 
-"""
-Omnibenchmark-izes Markek Gagolewski's https://github.com/gagolews/clustering-benchmarks/blob/0e751cc9dfc30f332ea3e3aac2b95ada8fbc266a/clustbench/score.py#L30
+Reads the clusterings from --from-files (lineage.json, version 2), scores each
+against --data_true_labels with every metric in --metrics, and writes one tidy
+table. Rows are labelled from the member's lineage, never from its path.
 
-Expects 2D clustering result arrays, e.g. partitions with 5 columns. Being k the true num of clusters, both 
-  input and outputs will have 5 columns, k-2, k-1, k, k+1 and k+2
-
-Doesn't take cluster 0 (noise points) into account
+A clustering has one column per k, true k - 2 .. true k + 2. Noise points
+(true label 0) are not scored, as in Marek Gagolewski's clustbench/score.py:
+https://github.com/gagolews/clustering-benchmarks/blob/0e751cc9dfc30f332ea3e3aac2b95ada8fbc266a/clustbench/score.py#L30
 """
 
 import argparse
-import os, sys
+import csv
+import json
+
 import numpy as np
-import gzip
-import genieclust
-import clustbench
-from clustbench.load_results import labels_list_to_dict
+from genieclust import compare_partitions
 
-## partition-comparison (predicted vs true)
-VALID_METRICS = ['normalized_clustering_accuracy'
-                 'adjusted_fm_score',
-                 'adjusted_mi_score',
-                 'adjusted_rand_score',
-                 'fm_score',
-                 'mi_score',
-                 'normalized_clustering_accuracy',
-                 # 'normalized_confusion_matrix',
-                 'normalized_mi_score',
-                 'normalized_pivoted_accuracy',
-                 'pair_sets_index',
-                 'rand_score']
+## partition-comparison (predicted vs true); 'normalized_confusion_matrix' is not a score
+METRICS = {name: getattr(compare_partitions, name) for name in [
+    "adjusted_fm_score",
+    "adjusted_mi_score",
+    "adjusted_rand_score",
+    "fm_score",
+    "mi_score",
+    "normalized_clustering_accuracy",
+    "normalized_mi_score",
+    "normalized_pivoted_accuracy",
+    "pair_sets_index",
+    "rand_score",
+]}
 
-## works for true labels only
-def load_true_labels(data_file):
-    data = np.loadtxt(data_file, ndmin=1)
-    
-    if data.ndim != 1:
-        raise ValueError("Invalid data structure, not a 1D matrix?")
-
-    return(data)
-
-## works for true labels only
-def load_predicted_labels(data_file):
-    data = np.loadtxt(data_file, ndmin=2, dtype=str,delimiter=",")
-    header = data[0,]
-    values = data[1:,].astype(int)
-    
-    
-    if data.ndim != 2:
-        raise ValueError("Invalid data structure, not a 2D matrix?")
-
-    return([header, values])
+COLUMNS = ["dataset_generator", "dataset", "method", "method_params", "metric",
+           "k_position", "k", "score"]
+# the clustering modules always emit true k - 2 .. true k + 2, in this order
+K_POSITIONS = ["k-2", "k-1", "k", "k+1", "k+2"]
 
 
-## adapted from https://github.com/gagolews/clustering-benchmarks/blob/0e751cc9dfc30f332ea3e3aac2b95ada8fbc266a/clustbench/score.py#L30
-## author M Gagolewski
-def get_single_score(
-    labels,
-    results,
-    metric=genieclust.compare_partitions.normalized_clustering_accuracy,
-    compute_max=True,
-    warn_if_missing=True
-):
-    """
-    Computes a similarity score between the reference and the predicted partition
+def rows(member, truth, metrics):
+    by_stage = {entry["stage"]: entry for entry in member["lineage"]}
+    data, method = by_stage["data"], by_stage["clustering"]
+    label = {
+        "dataset_generator": data["parameters"]["dataset_generator"],
+        "dataset": data["parameters"]["dataset"],
+        "method": method["module"],
+        "method_params": ";".join(f"{k}={v}" for k, v in sorted(method["parameters"].items())),
+    }
+    table = np.loadtxt(member["files"]["clustering_predicted_ks_range"],
+                       ndmin=2, dtype=str, delimiter=",")
+    ks, predicted = table[0], table[1:].astype(int)
+    if len(ks) != len(K_POSITIONS):
+        raise ValueError(f"{member['node_id']}: expected {len(K_POSITIONS)} ks, got {ks}")
+    true_k = int(truth.max())
+    if predicted.min() < 1 or predicted.max() > true_k + 2:
+        raise ValueError(f"{member['node_id']}: labels not between 1 and k={true_k} + 2, "
+                         f"min is {predicted.min()} and max is {predicted.max()}.")
+    scored = truth > 0
+    for name in metrics:
+        # the fcps module quotes its header ("k=2")
+        for position, k, column in zip(K_POSITIONS, ks, predicted.T):
+            yield {**label, "metric": name, "k_position": position,
+                   "k": k.strip('"').removeprefix("k="),
+                   "score": float(METRICS[name](truth[scored], column[scored]))}
 
-    Takes into account that there can be more than one ground truth partition
-    and ignores the noise points (as explained in the Methodology section
-    of the clustering benchmark framework's website).
 
-    If ``labels`` is a single label vector, it will be wrapped inside
-    a list. If ``results`` is not a dictionary,
-    `labels_list_to_dict` will be called first.
-
-
-    Parameters
-    ----------
-
-    labels
-        A vector-like object or a list thereof.
-
-    results
-        A dictionary of clustering results, where
-        ``results[K]`` gives a K-partition.
-
-    metric : function
-        An external cluster validity measure; defaults to
-        ``genieclust.compare_partitions.normalized_clustering_accuracy``.
-        It will be called like ``metric(y_true, y_pred)``.
-
-    compute_max : bool
-        Whether to apply ``max`` on the particular similarity scores.
-
-    warn_if_missing : bool
-        Warn if some ``results[K]`` is required, but missing.
-
-    Returns
-    -------
-
-    score : float or array thereof
-        The computed similarity scores. Ultimately, it is a vector of
-        ``metric(y_true[y_true>0], results[max(y_true)][y_true>0])``
-        over all ``y_true`` in ``labels``
-        or the maximum thereof if ``compute_max`` is ``True``.
-    """
-
-    # labels = list(np.array(labels, ndmin=2))
-
-    # if type(results) is not dict:
-    #     results = labels_list_to_dict(results)
-
-    scores = []
-
-    k = int(max(labels))
-    y_true = labels
-    y_pred = results
-    
-    if np.min(y_pred) < 1 or np.max(y_pred) > k + 2:
-        raise ValueError("`results[k]` is not between 1 and k=%d + 2, min is %d and max is %d." % (k, np.min(y_pred), np.max(y_pred)))
-
-    ## mind cluster 0 means noise; so we do no take noise points into account
-    scores.append(metric(y_true[y_true > 0], y_pred[y_true > 0]))
-
-    if compute_max and len(scores) > 0:
-        return np.nanmax(scores)
-    else:
-        return np.array(scores)
-    
 def main():
-    parser = argparse.ArgumentParser(description='clustbench fastcluster runner')
-
-    parser.add_argument('--clustering_predicted_ks_range', type=str,
-                        help='gz-compressed textfile containing the clustering result labels.', required = True)
-    parser.add_argument('--data_true_labels', type=str,
-                        help='gz-compressed textfile containing the true labels.', required = True)
-    parser.add_argument('--output', action='append', default=[],
-                        help='id=PATH, one per output the stage declares (api 0.8.0).')
-    parser.add_argument('--metric', type=str,
-                        help='metric',
-                        required = True)
-
-    # ob still passes --output_dir and --name until api 0.10; they are ignored.
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--from-files", required=True, help="gather manifest (lineage.json)")
+    parser.add_argument("--data_true_labels", required=True,
+                        help="gz-compressed textfile containing the true labels.")
+    parser.add_argument("--metrics", required=True,
+                        help="comma-separated metric names: " + ", ".join(METRICS))
+    parser.add_argument("--output", action="append", default=[], help="id=PATH")
     args, _ = parser.parse_known_args()
-    outputs = dict(o.split('=', 1) for o in args.output)
-    
-    truth = load_true_labels(args.data_true_labels)
-    ks, predicted = load_predicted_labels(args.clustering_predicted_ks_range)
-    
+    outputs = dict(o.split("=", 1) for o in args.output)
 
-    
-    if args.metric == 'normalized_clustering_accuracy':
-        metric = genieclust.compare_partitions.normalized_clustering_accuracy
-    elif args.metric == 'adjusted_fm_score':
-        metric = genieclust.compare_partitions.adjusted_fm_score
-    elif args.metric == 'adjusted_mi_score':
-        metric = genieclust.compare_partitions.adjusted_mi_score
-    elif args.metric == 'adjusted_rand_score':
-        metric = genieclust.compare_partitions.adjusted_rand_score
-    elif args.metric == 'fm_score':
-        metric = genieclust.compare_partitions.fm_score
-    elif args.metric == 'mi_score':
-        metric = genieclust.compare_partitions.mi_score
-    elif args.metric == 'normalized_clustering_accuracy':
-        metric = genieclust.compare_partitions.normalized_clustering_accuracy
-    elif args.metric == 'normalized_mi_score':
-        metric = genieclust.compare_partitions.normalized_mi_score
-    elif args.metric == 'normalized_pivoted_accuracy':
-        metric = genieclust.compare_partitions.normalized_pivoted_accuracy
-    elif args.metric == 'pair_sets_index':
-        metric = genieclust.compare_partitions.pair_sets_index
-    elif args.metric == 'rand_score':
-        metric = genieclust.compare_partitions.rand_score
-    elif args.metric not in VALID_METRICS:
-        raise ValueError("Invalid metric.")
-    else:
-        raise ValueError('Valid metric, but not implemented')
-    
-    res = []
-    for i in range(len(ks)):
-        k = ks[i][2:] # to remove the 'k=' prepend
-        ## the str is to coerce numpy float64 to something easier to write to disk
-        res.append(str(get_single_score(results = predicted[:,i,],
-                                       labels = truth,
-                                       metric = metric,
-                                       compute_max=True,
-                                       warn_if_missing=True)))
-        
-    ## np.savetext-free alternative
-    with gzip.open(outputs['metrics_scores'], 'wb') as fh:
-        fh.write(','.join(ks).encode())
-        fh.write('\n'.encode())
-        fh.write(','.join(res).encode())
-        fh.write('\n'.encode())
-        
+    metrics = args.metrics.split(",")
+    unknown = sorted(set(metrics) - set(METRICS))
+    if unknown:
+        raise ValueError(f"unknown metrics {unknown}; valid: {sorted(METRICS)}")
+    truth = np.loadtxt(args.data_true_labels, ndmin=1)
+    if truth.ndim != 1:
+        raise ValueError("Invalid data structure, not a 1D matrix?")
+    manifest = json.load(open(args.from_files))
+    if manifest.get("version") != 2:
+        raise ValueError(f"unsupported manifest version: {manifest.get('version')}")
+
+    table = sorted(
+        (row for member in manifest["members"] for row in rows(member, truth, metrics)),
+        key=lambda r: [r[c] for c in COLUMNS[:5]] + [K_POSITIONS.index(r["k_position"])],
+    )
+    with open(outputs["metrics_summary"], "w", newline="") as fh:
+        writer = csv.DictWriter(fh, COLUMNS, delimiter="\t")
+        writer.writeheader()
+        writer.writerows(table)
+
 
 if __name__ == "__main__":
     main()

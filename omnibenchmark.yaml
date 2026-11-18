@@ -1,3 +1,2 @@
 entrypoints:
   default: run_metrics.py
-  summary: summarise.py
