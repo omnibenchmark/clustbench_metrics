@@ -22,7 +22,7 @@ references:
     doi: "10.1016/j.softx.2022.101270"
     url: "https://clustering-benchmarks.gagolewski.com"
 
-  - type: dataset
+  - type: data
     authors:
       - family-names: "Gagolewski"
         given-names: "Marek"
@@ -45,3 +45,57 @@ references:
     pages: "8-23"
     year: 2016
     doi: "10.1016/j.ins.2016.05.003"
+
+  # The libraries this module calls, with the versions its environment pins
+  # where a package rather than a paper is cited.
+
+  - type: article
+    authors:
+      - {family-names: "Gagolewski", given-names: "Marek"}
+    title: "genieclust: Fast and robust hierarchical clustering"
+    journal: "SoftwareX"
+    volume: "15"
+    start: "100722"
+    year: 2021
+    doi: "10.1016/j.softx.2021.100722"
+
+  - type: article
+    authors:
+      - {family-names: "Gagolewski", given-names: "Marek"}
+    title: "Normalised clustering accuracy: An asymmetric external cluster validity measure"
+    journal: "Journal of Classification"
+    volume: "42"
+    issue: "1"
+    start: "2"
+    end: "30"
+    year: 2025
+    doi: "10.1007/s00357-024-09482-2"
+    notes: "normalized_clustering_accuracy."
+
+  - type: article
+    authors:
+      - {family-names: "Hubert", given-names: "Lawrence"}
+      - {family-names: "Arabie", given-names: "Phipps"}
+    title: "Comparing partitions"
+    journal: "Journal of Classification"
+    volume: "2"
+    issue: "1"
+    start: "193"
+    end: "218"
+    year: 1985
+    doi: "10.1007/BF01908075"
+    notes: "adjusted_rand_score."
+
+  - type: article
+    authors:
+      - {family-names: "Fowlkes", given-names: "Edward B."}
+      - {family-names: "Mallows", given-names: "Colin L."}
+    title: "A method for comparing two hierarchical clusterings"
+    journal: "Journal of the American Statistical Association"
+    volume: "78"
+    issue: "383"
+    start: "553"
+    end: "569"
+    year: 1983
+    doi: "10.1080/01621459.1983.10478008"
+    notes: "adjusted_fm_score (adjusted Fowlkes-Mallows index)."
